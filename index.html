@@ -193,10 +193,8 @@
             }
 
             renderDetailedView(filteredData);
-
-            if (selectedBuildings.length > 1) {
-                renderSummaryView(filteredData);
-            }
+            // *** UPDATED ***: Summary view is now always rendered if data exists.
+            renderSummaryView(filteredData);
         }
 
         function createTableFromData(data, headers) {
@@ -226,6 +224,34 @@
             return table;
         }
 
+        /**
+         * *** NEW ***: Natural sort function to correctly sort strings with numbers.
+         * E.g., "Anlage 2" comes before "Anlage 10".
+         */
+        function naturalSort(a, b) {
+            const re = /(\d+)/g;
+            const aNum = a.match(re);
+            const bNum = b.match(re);
+            const aStr = a.split(re);
+            const bStr = b.split(re);
+            
+            for (let i = 0; i < Math.max(aStr.length, bStr.length); i++) {
+                const aPart = aStr[i] || '';
+                const bPart = bStr[i] || '';
+                if (aPart.localeCompare(bPart) !== 0) {
+                    return aPart.localeCompare(bPart);
+                }
+                
+                const aN = aNum && aNum.length > i ? parseInt(aNum[i]) : -1;
+                const bN = bNum && bNum.length > i ? parseInt(bNum[i]) : -1;
+                if (aN !== bN) {
+                    return aN - bN;
+                }
+            }
+            return 0;
+        }
+
+
         function renderDetailedView(data) {
             const detailContainer = document.createElement('div');
             const title = document.createElement('h2');
@@ -250,7 +276,8 @@
                 buildingTitle.className = 'text-lg font-semibold text-gray-700 mt-6 mb-2';
                 detailContainer.appendChild(buildingTitle);
 
-                for (const anlage of Object.keys(groupedByBuilding[building]).sort()) {
+                // *** UPDATED ***: Using the new naturalSort function for Anlagen.
+                for (const anlage of Object.keys(groupedByBuilding[building]).sort(naturalSort)) {
                     const anlageTitle = document.createElement('h4');
                     anlageTitle.textContent = `Anlage: ${anlage}`;
                     anlageTitle.className = 'text-md font-medium text-gray-600 mt-4 mb-2 ml-2';
@@ -280,7 +307,7 @@
                 if (!acc[matNr]) {
                     acc[matNr] = {
                         'Material-Nr': matNr,
-                        'Beschreibung': `${row['Filter-Klasse']}, ${row['Filter-Typ.']}, ${row['Maße [mm]']}`,
+                        'Beschreibung': `${row['Filter-Klasse'] || ''}, ${row['Filter-Typ.'] || ''}, ${row['Maße [mm]'] || ''}`.replace(/, $/, ''),
                         'Gesamtstückzahl': 0
                     };
                 }
@@ -288,7 +315,7 @@
                 return acc;
             }, {});
 
-            const summaryData = Object.values(summary).sort((a, b) => a['Material-Nr'].localeCompare(b['Material-Nr']));
+            const summaryData = Object.values(summary).sort((a, b) => String(a['Material-Nr']).localeCompare(String(b['Material-Nr'])));
             const summaryHeaders = ['Material-Nr', 'Beschreibung', 'Gesamtstückzahl'];
             const table = createTableFromData(summaryData, summaryHeaders);
             summaryContainer.appendChild(table);
