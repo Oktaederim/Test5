@@ -51,7 +51,7 @@
                 padding: 8px;
                 text-align: left;
             }
-            h2, h3 {
+            h2, h3, h4 {
                 page-break-after: avoid;
             }
         }
@@ -70,10 +70,10 @@
         </div>
 
         <!-- File Input and Filters Section -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <!-- File Upload -->
-            <div>
-                <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">1. Excel-Datei auswählen</label>
+            <div class="lg:col-span-1">
+                <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">1. Excel-Datei</label>
                 <input id="file-upload" type="file" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
             </div>
             <!-- Building Filter -->
@@ -82,6 +82,11 @@
                 <div id="building-filter-container" class="filter-container bg-white p-2 border border-gray-300 rounded-md">
                     <p class="text-gray-500 text-sm">Bitte zuerst Datei laden.</p>
                 </div>
+            </div>
+             <!-- Search Input -->
+            <div class="lg:col-span-1">
+                <label for="search-input" class="block text-sm font-medium text-gray-700 mb-1">3. Freitextsuche</label>
+                <input type="text" id="search-input" placeholder="Anlage, Material-Nr, Maße..." class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" disabled>
             </div>
         </div>
 
@@ -99,6 +104,7 @@
         let tableData = [];
         const fileUpload = document.getElementById('file-upload');
         const buildingFilterContainer = document.getElementById('building-filter-container');
+        const searchInput = document.getElementById('search-input');
         const resultsContainer = document.getElementById('results-container');
         const printButton = document.getElementById('printButton');
 
@@ -142,6 +148,7 @@
 
         function enableControls() {
             printButton.disabled = false;
+            searchInput.disabled = false;
         }
 
         function populateBuildingFilter() {
@@ -152,6 +159,28 @@
                 buildingFilterContainer.innerHTML = `<p class="text-gray-500 text-sm">Keine Gebäude in der Datei gefunden.</p>`;
                 return;
             }
+
+            // *** NEW ***: Add "Select All" checkbox
+            const allDiv = document.createElement('div');
+            allDiv.className = 'flex items-center mb-2 pb-2 border-b border-gray-200';
+            const allCheckbox = document.createElement('input');
+            allCheckbox.type = 'checkbox';
+            allCheckbox.id = 'building-all';
+            allCheckbox.className = 'h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500';
+            allCheckbox.addEventListener('change', (event) => {
+                const isChecked = event.target.checked;
+                buildingFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (cb !== allCheckbox) cb.checked = isChecked;
+                });
+                updateResults();
+            });
+            const allLabel = document.createElement('label');
+            allLabel.htmlFor = 'building-all';
+            allLabel.textContent = 'Alle auswählen / abwählen';
+            allLabel.className = 'ml-2 block text-sm font-semibold text-gray-700';
+            allDiv.appendChild(allCheckbox);
+            allDiv.appendChild(allLabel);
+            buildingFilterContainer.appendChild(allDiv);
 
             buildings.forEach(building => {
                 const div = document.createElement('div');
@@ -173,10 +202,13 @@
                 buildingFilterContainer.appendChild(div);
             });
         }
+        
+        searchInput.addEventListener('input', updateResults);
 
         function updateResults() {
-            const selectedBuildings = Array.from(buildingFilterContainer.querySelectorAll('input[type="checkbox"]:checked'))
+            const selectedBuildings = Array.from(buildingFilterContainer.querySelectorAll('input[type="checkbox"]:checked:not(#building-all)'))
                                          .map(cb => cb.value);
+            const searchTerm = searchInput.value.toLowerCase().trim();
 
             resultsContainer.innerHTML = '';
 
@@ -185,15 +217,21 @@
                 return;
             }
 
-            const filteredData = tableData.filter(row => selectedBuildings.includes(row['Gebäude']));
+            let filteredData = tableData.filter(row => selectedBuildings.includes(row['Gebäude']));
+
+            if (searchTerm) {
+                filteredData = filteredData.filter(row => {
+                    const searchableKeys = ['Material-Nr', 'Filter-Klasse', 'Filter-Typ.', 'Maße [mm]', 'RLT-Anlagen', 'Bemerkung'];
+                    return searchableKeys.some(key => String(row[key] || '').toLowerCase().includes(searchTerm));
+                });
+            }
 
             if (filteredData.length === 0) {
-                resultsContainer.innerHTML = `<p class="text-center p-8 text-gray-500">Für die ausgewählten Gebäude wurden keine Filter gefunden.</p>`;
+                resultsContainer.innerHTML = `<p class="text-center p-8 text-gray-500">Für die aktuelle Auswahl und Suche wurden keine Filter gefunden.</p>`;
                 return;
             }
 
             renderDetailedView(filteredData);
-            // *** UPDATED ***: Summary view is now always rendered if data exists.
             renderSummaryView(filteredData);
         }
 
@@ -224,33 +262,31 @@
             return table;
         }
 
-        /**
-         * *** NEW ***: Natural sort function to correctly sort strings with numbers.
-         * E.g., "Anlage 2" comes before "Anlage 10".
-         */
         function naturalSort(a, b) {
-            const re = /(\d+)/g;
-            const aNum = a.match(re);
-            const bNum = b.match(re);
-            const aStr = a.split(re);
-            const bStr = b.split(re);
-            
-            for (let i = 0; i < Math.max(aStr.length, bStr.length); i++) {
-                const aPart = aStr[i] || '';
-                const bPart = bStr[i] || '';
-                if (aPart.localeCompare(bPart) !== 0) {
-                    return aPart.localeCompare(bPart);
-                }
-                
-                const aN = aNum && aNum.length > i ? parseInt(aNum[i]) : -1;
-                const bN = bNum && bNum.length > i ? parseInt(bNum[i]) : -1;
-                if (aN !== bN) {
-                    return aN - bN;
-                }
+            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        }
+        
+        // *** NEW ***: Advanced sorting for Anlagen
+        function getAnlageType(name) {
+            const lowerName = String(name || '').toLowerCase().trim();
+            if (lowerName.startsWith('zuluft') || lowerName.startsWith('zul') || lowerName.startsWith('zu') || /^z\d/.test(lowerName)) {
+                return 1; // Zuluft
             }
-            return 0;
+            if (lowerName.startsWith('abluft') || lowerName.startsWith('abl') || /^a\d/.test(lowerName)) {
+                return 2; // Abluft
+            }
+            return 3; // Andere
         }
 
+        function advancedAnlagenSort(a, b) {
+            const typeA = getAnlageType(a);
+            const typeB = getAnlageType(b);
+
+            if (typeA !== typeB) {
+                return typeA - typeB;
+            }
+            return naturalSort(a, b);
+        }
 
         function renderDetailedView(data) {
             const detailContainer = document.createElement('div');
@@ -276,8 +312,7 @@
                 buildingTitle.className = 'text-lg font-semibold text-gray-700 mt-6 mb-2';
                 detailContainer.appendChild(buildingTitle);
 
-                // *** UPDATED ***: Using the new naturalSort function for Anlagen.
-                for (const anlage of Object.keys(groupedByBuilding[building]).sort(naturalSort)) {
+                for (const anlage of Object.keys(groupedByBuilding[building]).sort(advancedAnlagenSort)) {
                     const anlageTitle = document.createElement('h4');
                     anlageTitle.textContent = `Anlage: ${anlage}`;
                     anlageTitle.className = 'text-md font-medium text-gray-600 mt-4 mb-2 ml-2';
@@ -305,9 +340,10 @@
 
                 const stueck = parseInt(row['Stück'], 10) || 0;
                 if (!acc[matNr]) {
+                    const descParts = [row['Filter-Klasse'], row['Filter-Typ.'], row['Maße [mm]']].filter(Boolean);
                     acc[matNr] = {
                         'Material-Nr': matNr,
-                        'Beschreibung': `${row['Filter-Klasse'] || ''}, ${row['Filter-Typ.'] || ''}, ${row['Maße [mm]'] || ''}`.replace(/, $/, ''),
+                        'Beschreibung': descParts.join(', '),
                         'Gesamtstückzahl': 0
                     };
                 }
@@ -315,7 +351,7 @@
                 return acc;
             }, {});
 
-            const summaryData = Object.values(summary).sort((a, b) => String(a['Material-Nr']).localeCompare(String(b['Material-Nr'])));
+            const summaryData = Object.values(summary).sort((a, b) => naturalSort(String(a['Material-Nr']), String(b['Material-Nr'])));
             const summaryHeaders = ['Material-Nr', 'Beschreibung', 'Gesamtstückzahl'];
             const table = createTableFromData(summaryData, summaryHeaders);
             summaryContainer.appendChild(table);
