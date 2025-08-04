@@ -64,7 +64,7 @@
             <!-- File Upload -->
             <div>
                 <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">Excel-Datei auswählen</label>
-                <input id="file-upload" type="file" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                <input id="file-upload" type="file" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
             </div>
             <!-- Search Input -->
             <div>
@@ -123,6 +123,7 @@
         /**
          * Handles the file upload event.
          * Reads the selected Excel file and processes its content.
+         * *** UPDATED ***: Added robust parsing to handle empty or junk header rows.
          */
         fileUpload.addEventListener('change', (event) => {
             const file = event.target.files[0];
@@ -136,15 +137,33 @@
                 const workbook = XLSX.read(data, { type: 'array' });
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
-                // Convert sheet to JSON, using header option 1 to get an array of arrays
                 const json_data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                 
-                if (json_data.length > 1) {
-                    const headers = json_data[0].map(h => h.trim()); // Trim whitespace from headers
-                    tableData = json_data.slice(1).map(row => {
+                // Filter out completely empty rows that SheetJS might create
+                const nonEmptyRows = json_data.filter(row => row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ''));
+
+                if (nonEmptyRows.length > 1) {
+                    let headerRow;
+                    let dataRows;
+
+                    // Heuristic to find the header row. If the first cell of the first non-empty row is empty,
+                    // assume it's a junk row and the second non-empty row is the actual header.
+                    if (!nonEmptyRows[0][0] && nonEmptyRows.length > 2) { 
+                        headerRow = nonEmptyRows[1];
+                        dataRows = nonEmptyRows.slice(2);
+                    } else {
+                        headerRow = nonEmptyRows[0];
+                        dataRows = nonEmptyRows.slice(1);
+                    }
+                    
+                    // Sanitize headers by converting to string and trimming whitespace
+                    const headers = headerRow.map(h => String(h || '').trim());
+                    
+                    tableData = dataRows.map(row => {
                         let rowData = {};
                         headers.forEach((header, index) => {
-                            rowData[header] = row[index];
+                            // Ensure we don't try to access an index that doesn't exist
+                            rowData[header] = row[index] !== undefined && row[index] !== null ? row[index] : '';
                         });
                         return rowData;
                     });
@@ -175,7 +194,7 @@
          * Populates the filter dropdowns with unique values from the data.
          */
         function populateFilters() {
-            // *** UPDATED *** Using 'RLT-Anlagen' to match the user's Excel file
+            // Using 'Gebäude' and 'RLT-Anlagen' to match the user's Excel file
             const buildings = [...new Set(tableData.map(item => item['Gebäude']).filter(Boolean))].sort();
             const rlts = [...new Set(tableData.map(item => item['RLT-Anlagen']).filter(Boolean))].sort();
 
@@ -209,7 +228,7 @@
             thead.innerHTML = ''; // Clear existing headers
 
             if (data.length === 0) {
-                const headerCount = thead.getElementsByTagName('th').length || 9;
+                const headerCount = (tableData[0] && Object.keys(tableData[0]).length) || 9;
                 tbody.innerHTML = `<tr><td colspan="${headerCount}" class="text-center p-8 text-gray-500">Keine Ergebnisse gefunden.</td></tr>`;
                 rowCount.textContent = '0 Zeilen angezeigt';
                 return;
@@ -252,7 +271,6 @@
 
             let filteredData = tableData.filter(row => {
                 const matchesBuilding = !selectedBuilding || row['Gebäude'] === selectedBuilding;
-                // *** UPDATED *** Using 'RLT-Anlagen' to match the user's Excel file
                 const matchesRlt = !selectedRlt || row['RLT-Anlagen'] === selectedRlt;
                 
                 // Check if search term matches any value in the row
