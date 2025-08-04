@@ -13,12 +13,15 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        .table-container {
-            max-height: 60vh; /* Set a max height for the table container */
-            overflow-y: auto; /* Enable vertical scrolling */
+        .filter-container {
+            max-height: 150px;
+            overflow-y: auto;
         }
         @media print {
             /* Hide UI elements that shouldn't be printed */
+            body > div > div:not(#print-section-container), #printButton {
+                display: none;
+            }
             body * {
                 visibility: hidden;
             }
@@ -31,18 +34,25 @@
                 top: 0;
                 width: 100%;
             }
-            /* Ensure table styles are maintained for printing */
             table {
                 width: 100%;
                 border-collapse: collapse;
+                page-break-inside: auto;
+            }
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            thead {
+                display: table-header-group;
             }
             th, td {
                 border: 1px solid #ddd;
                 padding: 8px;
                 text-align: left;
             }
-            th {
-                background-color: #f2f2f2;
+            h2, h3 {
+                page-break-after: avoid;
             }
         }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -60,76 +70,41 @@
         </div>
 
         <!-- File Input and Filters Section -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <!-- File Upload -->
             <div>
-                <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">Excel-Datei auswählen</label>
+                <label for="file-upload" class="block text-sm font-medium text-gray-700 mb-1">1. Excel-Datei auswählen</label>
                 <input id="file-upload" type="file" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
             </div>
-            <!-- Search Input -->
-            <div>
-                <label for="search-input" class="block text-sm font-medium text-gray-700 mb-1">Freitextsuche</label>
-                <input type="text" id="search-input" placeholder="Alle Spalten durchsuchen..." class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" disabled>
-            </div>
             <!-- Building Filter -->
-            <div>
-                <label for="building-filter" class="block text-sm font-medium text-gray-700 mb-1">Gebäude</label>
-                <select id="building-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" disabled>
-                    <option value="">Alle Gebäude</option>
-                </select>
-            </div>
-            <!-- RLT-Anlagen Filter -->
-            <div>
-                <label for="rlt-filter" class="block text-sm font-medium text-gray-700 mb-1">RLT-Anlagen</label>
-                <select id="rlt-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" disabled>
-                    <option value="">Alle Anlagen</option>
-                </select>
+            <div class="lg:col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-1">2. Gebäude auswählen</label>
+                <div id="building-filter-container" class="filter-container bg-white p-2 border border-gray-300 rounded-md">
+                    <p class="text-gray-500 text-sm">Bitte zuerst Datei laden.</p>
+                </div>
             </div>
         </div>
 
-        <!-- Data Table Section -->
-        <div id="table-container" class="table-container border border-gray-200 rounded-lg">
+        <!-- Results Section -->
+        <div id="print-section-container">
             <div id="print-section">
-                <h2 id="print-title" class="text-xl font-bold text-center my-4 hidden">Gefilterte Filterliste</h2>
-                <table id="data-table" class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50 sticky top-0">
-                        <!-- Table headers will be inserted here by JavaScript -->
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <!-- Table rows will be inserted here by JavaScript -->
-                        <tr>
-                            <td colspan="9" class="text-center p-8 text-gray-500">Bitte laden Sie eine Excel-Datei hoch, um die Daten anzuzeigen.</td>
-                        </tr>
-                    </tbody>
-                </table>
+                 <div id="results-container" class="space-y-8">
+                    <!-- Results will be rendered here -->
+                 </div>
             </div>
         </div>
-        <div id="row-count" class="text-right mt-2 text-sm text-gray-600"></div>
-
     </div>
 
     <script>
-        // Global variable to store the parsed data from the Excel file
         let tableData = [];
         const fileUpload = document.getElementById('file-upload');
-        const searchInput = document.getElementById('search-input');
-        const buildingFilter = document.getElementById('building-filter');
-        const rltFilter = document.getElementById('rlt-filter');
-        const dataTable = document.getElementById('data-table');
+        const buildingFilterContainer = document.getElementById('building-filter-container');
+        const resultsContainer = document.getElementById('results-container');
         const printButton = document.getElementById('printButton');
-        const rowCount = document.getElementById('row-count');
-        const printTitle = document.getElementById('print-title');
 
-        /**
-         * Handles the file upload event.
-         * Reads the selected Excel file and processes its content.
-         * *** UPDATED ***: Added robust parsing to handle empty or junk header rows.
-         */
         fileUpload.addEventListener('change', (event) => {
             const file = event.target.files[0];
-            if (!file) {
-                return;
-            }
+            if (!file) return;
 
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -139,171 +114,189 @@
                 const worksheet = workbook.Sheets[firstSheetName];
                 const json_data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                 
-                // Filter out completely empty rows that SheetJS might create
                 const nonEmptyRows = json_data.filter(row => row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ''));
 
                 if (nonEmptyRows.length > 1) {
-                    let headerRow;
-                    let dataRows;
-
-                    // Heuristic to find the header row. If the first cell of the first non-empty row is empty,
-                    // assume it's a junk row and the second non-empty row is the actual header.
-                    if (!nonEmptyRows[0][0] && nonEmptyRows.length > 2) { 
-                        headerRow = nonEmptyRows[1];
-                        dataRows = nonEmptyRows.slice(2);
-                    } else {
-                        headerRow = nonEmptyRows[0];
-                        dataRows = nonEmptyRows.slice(1);
-                    }
+                    let headerRow = nonEmptyRows[0][0] ? nonEmptyRows[0] : nonEmptyRows[1];
+                    let dataRows = nonEmptyRows[0][0] ? nonEmptyRows.slice(1) : nonEmptyRows.slice(2);
                     
-                    // Sanitize headers by converting to string and trimming whitespace
                     const headers = headerRow.map(h => String(h || '').trim());
                     
                     tableData = dataRows.map(row => {
                         let rowData = {};
                         headers.forEach((header, index) => {
-                            // Ensure we don't try to access an index that doesn't exist
                             rowData[header] = row[index] !== undefined && row[index] !== null ? row[index] : '';
                         });
                         return rowData;
                     });
 
-                    // Enable UI elements after data is loaded
                     enableControls();
-                    populateFilters();
-                    renderTable(tableData);
+                    populateBuildingFilter();
+                    updateResults(); 
                 } else {
-                    // Handle empty or invalid sheet
-                    dataTable.querySelector('tbody').innerHTML = `<tr><td colspan="9" class="text-center p-8 text-gray-500">Die ausgewählte Datei ist leer oder hat ein ungültiges Format.</td></tr>`;
+                    resultsContainer.innerHTML = `<p class="text-center p-8 text-gray-500">Die ausgewählte Datei ist leer oder hat ein ungültiges Format.</p>`;
                 }
             };
             reader.readAsArrayBuffer(file);
         });
 
-        /**
-         * Enables filter and search controls once data is loaded.
-         */
         function enableControls() {
-            searchInput.disabled = false;
-            buildingFilter.disabled = false;
-            rltFilter.disabled = false;
             printButton.disabled = false;
         }
 
-        /**
-         * Populates the filter dropdowns with unique values from the data.
-         */
-        function populateFilters() {
-            // Using 'Gebäude' and 'RLT-Anlagen' to match the user's Excel file
+        function populateBuildingFilter() {
+            buildingFilterContainer.innerHTML = '';
             const buildings = [...new Set(tableData.map(item => item['Gebäude']).filter(Boolean))].sort();
-            const rlts = [...new Set(tableData.map(item => item['RLT-Anlagen']).filter(Boolean))].sort();
-
-            // Clear previous options
-            buildingFilter.innerHTML = '<option value="">Alle Gebäude</option>';
-            rltFilter.innerHTML = '<option value="">Alle Anlagen</option>';
-
-            buildings.forEach(building => {
-                const option = document.createElement('option');
-                option.value = building;
-                option.textContent = building;
-                buildingFilter.appendChild(option);
-            });
-
-            rlts.forEach(rlt => {
-                const option = document.createElement('option');
-                option.value = rlt;
-                option.textContent = rlt;
-                rltFilter.appendChild(option);
-            });
-        }
-
-        /**
-         * Renders the data table with the provided data rows.
-         * @param {Array} data - The array of data objects to render.
-         */
-        function renderTable(data) {
-            const tbody = dataTable.querySelector('tbody');
-            const thead = dataTable.querySelector('thead');
-            tbody.innerHTML = ''; // Clear existing rows
-            thead.innerHTML = ''; // Clear existing headers
-
-            if (data.length === 0) {
-                const headerCount = (tableData[0] && Object.keys(tableData[0]).length) || 9;
-                tbody.innerHTML = `<tr><td colspan="${headerCount}" class="text-center p-8 text-gray-500">Keine Ergebnisse gefunden.</td></tr>`;
-                rowCount.textContent = '0 Zeilen angezeigt';
+            
+            if (buildings.length === 0) {
+                buildingFilterContainer.innerHTML = `<p class="text-gray-500 text-sm">Keine Gebäude in der Datei gefunden.</p>`;
                 return;
             }
 
-            // Create table headers from the keys of the first data object
-            const headers = Object.keys(data[0]);
-            const headerRow = document.createElement('tr');
+            buildings.forEach(building => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `building-${building}`;
+                checkbox.value = building;
+                checkbox.className = 'h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500';
+                checkbox.addEventListener('change', updateResults);
+
+                const label = document.createElement('label');
+                label.htmlFor = `building-${building}`;
+                label.textContent = building;
+                label.className = 'ml-2 block text-sm text-gray-900';
+                
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                buildingFilterContainer.appendChild(div);
+            });
+        }
+
+        function updateResults() {
+            const selectedBuildings = Array.from(buildingFilterContainer.querySelectorAll('input[type="checkbox"]:checked'))
+                                         .map(cb => cb.value);
+
+            resultsContainer.innerHTML = '';
+
+            if (selectedBuildings.length === 0) {
+                resultsContainer.innerHTML = `<p class="text-center p-8 text-gray-500">Bitte wählen Sie mindestens ein Gebäude aus, um Ergebnisse anzuzeigen.</p>`;
+                return;
+            }
+
+            const filteredData = tableData.filter(row => selectedBuildings.includes(row['Gebäude']));
+
+            if (filteredData.length === 0) {
+                resultsContainer.innerHTML = `<p class="text-center p-8 text-gray-500">Für die ausgewählten Gebäude wurden keine Filter gefunden.</p>`;
+                return;
+            }
+
+            renderDetailedView(filteredData);
+
+            if (selectedBuildings.length > 1) {
+                renderSummaryView(filteredData);
+            }
+        }
+
+        function createTableFromData(data, headers) {
+            const table = document.createElement('table');
+            table.className = 'min-w-full divide-y divide-gray-200';
+            const thead = table.createTHead();
+            thead.className = 'bg-gray-50';
+            const headerRow = thead.insertRow();
             headers.forEach(headerText => {
                 const th = document.createElement('th');
                 th.textContent = headerText;
-                th.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                th.className = 'px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
                 headerRow.appendChild(th);
             });
-            thead.appendChild(headerRow);
 
-            // Create table rows
-            data.forEach(row => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-gray-50';
+            const tbody = table.createTBody();
+            tbody.className = 'bg-white divide-y divide-gray-200';
+            data.forEach(rowData => {
+                const row = tbody.insertRow();
+                row.className = 'hover:bg-gray-50';
                 headers.forEach(header => {
-                    const td = document.createElement('td');
-                    td.textContent = row[header] || ''; // Handle undefined or null values
-                    td.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-700';
-                    tr.appendChild(td);
+                    const cell = row.insertCell();
+                    cell.textContent = rowData[header] || '';
+                    cell.className = 'px-4 py-2 whitespace-nowrap text-sm text-gray-700';
                 });
-                tbody.appendChild(tr);
             });
-
-            rowCount.textContent = `${data.length} Zeile(n) angezeigt`;
+            return table;
         }
 
-        /**
-         * Filters the table data based on current search and filter values.
-         */
-        function applyFilters() {
-            const searchTerm = searchInput.value.toLowerCase();
-            const selectedBuilding = buildingFilter.value;
-            const selectedRlt = rltFilter.value;
+        function renderDetailedView(data) {
+            const detailContainer = document.createElement('div');
+            const title = document.createElement('h2');
+            title.textContent = 'Detailansicht nach Anlagen';
+            title.className = 'text-xl font-bold text-gray-800 mb-4';
+            detailContainer.appendChild(title);
 
-            let filteredData = tableData.filter(row => {
-                const matchesBuilding = !selectedBuilding || row['Gebäude'] === selectedBuilding;
-                const matchesRlt = !selectedRlt || row['RLT-Anlagen'] === selectedRlt;
-                
-                // Check if search term matches any value in the row
-                const matchesSearch = !searchTerm || Object.values(row).some(value =>
-                    String(value).toLowerCase().includes(searchTerm)
-                );
+            const groupedByBuilding = data.reduce((acc, row) => {
+                const building = row['Gebäude'];
+                const anlage = row['RLT-Anlagen'] || 'Nicht zugeordnet';
+                if (!acc[building]) acc[building] = {};
+                if (!acc[building][anlage]) acc[building][anlage] = [];
+                acc[building][anlage].push(row);
+                return acc;
+            }, {});
 
-                return matchesBuilding && matchesRlt && matchesSearch;
-            });
+            const displayHeaders = ['Material-Nr', 'Filter-Klasse', 'Filter-Typ.', 'Maße [mm]', 'Stück', 'Bemerkung'];
 
-            renderTable(filteredData);
+            for (const building of Object.keys(groupedByBuilding).sort()) {
+                const buildingTitle = document.createElement('h3');
+                buildingTitle.textContent = `Gebäude: ${building}`;
+                buildingTitle.className = 'text-lg font-semibold text-gray-700 mt-6 mb-2';
+                detailContainer.appendChild(buildingTitle);
+
+                for (const anlage of Object.keys(groupedByBuilding[building]).sort()) {
+                    const anlageTitle = document.createElement('h4');
+                    anlageTitle.textContent = `Anlage: ${anlage}`;
+                    anlageTitle.className = 'text-md font-medium text-gray-600 mt-4 mb-2 ml-2';
+                    detailContainer.appendChild(anlageTitle);
+                    
+                    const anlageData = groupedByBuilding[building][anlage];
+                    const table = createTableFromData(anlageData, displayHeaders);
+                    detailContainer.appendChild(table);
+                }
+            }
+            resultsContainer.appendChild(detailContainer);
         }
 
-        // Event listeners for filter controls
-        searchInput.addEventListener('input', applyFilters);
-        buildingFilter.addEventListener('change', applyFilters);
-        rltFilter.addEventListener('change', applyFilters);
+        function renderSummaryView(data) {
+            const summaryContainer = document.createElement('div');
+            summaryContainer.className = 'mt-12';
+            const title = document.createElement('h2');
+            title.textContent = 'Zusammenfassung Materialbedarf';
+            title.className = 'text-xl font-bold text-gray-800 mb-4';
+            summaryContainer.appendChild(title);
 
-        /**
-         * Handles the print button click.
-         * Opens the browser's print dialog.
-         */
+            const summary = data.reduce((acc, row) => {
+                const matNr = row['Material-Nr'];
+                if (!matNr) return acc;
+
+                const stueck = parseInt(row['Stück'], 10) || 0;
+                if (!acc[matNr]) {
+                    acc[matNr] = {
+                        'Material-Nr': matNr,
+                        'Beschreibung': `${row['Filter-Klasse']}, ${row['Filter-Typ.']}, ${row['Maße [mm]']}`,
+                        'Gesamtstückzahl': 0
+                    };
+                }
+                acc[matNr]['Gesamtstückzahl'] += stueck;
+                return acc;
+            }, {});
+
+            const summaryData = Object.values(summary).sort((a, b) => a['Material-Nr'].localeCompare(b['Material-Nr']));
+            const summaryHeaders = ['Material-Nr', 'Beschreibung', 'Gesamtstückzahl'];
+            const table = createTableFromData(summaryData, summaryHeaders);
+            summaryContainer.appendChild(table);
+            resultsContainer.appendChild(summaryContainer);
+        }
+
         printButton.addEventListener('click', () => {
-            // Set a title for the printed document
-            const building = buildingFilter.options[buildingFilter.selectedIndex].text;
-            const rlt = rltFilter.options[rltFilter.selectedIndex].text;
-            printTitle.textContent = `Filterliste für: ${building} / ${rlt}`;
-            printTitle.classList.remove('hidden');
-
             window.print();
-
-            // Hide the title again after printing
-            printTitle.classList.add('hidden');
         });
 
     </script>
